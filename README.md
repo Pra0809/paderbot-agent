@@ -6,7 +6,6 @@ A LangGraph rewrite of [PaderBot](https://github.com/Pra0809/Paderbot)'s query p
 
 ---
 
-## Why this exists
 
 The original PaderBot runs one pass: rewrite the question, retrieve, check confidence, answer or refuse. If retrieval came back weak, that was it — the user got a refusal and no second attempt, even when a differently worded search would have found the page.
 
@@ -46,17 +45,6 @@ Six nodes, two conditional edges, one retry counter shared between them.
 **State.** One `TypedDict`. Each node reads what it needs and returns a partial update, which LangGraph merges by plain overwrite — no reducers, since nothing here accumulates. Inputs are set once by the caller and never written by a node: `question` stays verbatim, `language` restricts retrieval to `en` / `de` / both, `force_answer_language` pins the output language. The loop owns `retrieval_query`, `chunks`, `retrieval_ok`, `retry_count`. Output is `answer`, `sources`, `refused`.
 
 `RetrievedChunk` is imported from `paderbot-api` rather than redefined, so the schema can't drift from what retrieval actually returns.
-
----
-
-## Decisions
-
-- **Two failure signals, one loop.** Retrieval confidence and answer quality fail independently. `grade` catches the obvious case — nothing came back, or nothing close enough. But retrieval can look confident and the answer still be a refusal, because the chunks didn't contain what was asked. `generate` catches that by checking its own output against a marker list. Both paths lead into the same `requery` node and share one `retry_count`.
-- **Refusals are templated, not generated.** `refuse` overwrites whatever the model wrote with fixed text and empties `sources`, so a refusal can't cite pages it never used.
-- **Retry cap of 2.** One retry can't tell a bad original query apart from a bad reformulation. If two separately reformulated queries both come back empty, more attempts mostly buy latency and tokens. Worst case is three retrieval passes and three generation calls. Both conditional edges check the same `MAX_RETRIES`, so the loop can't be re-entered through the other branch.
-- **Retrieval logic stays in `paderbot-api`.** Embedding, BM25, RRF fusion, the confidence threshold and the rewrite heuristic are all wired in as an editable dependency. The nodes are thin wrappers — two copies of retrieval logic would drift apart.
-- **Two heuristics are ported, not delegated.** The refusal-marker list and the German/English detection that picks the refusal's language live inline in `paderbot.py`'s `query()` and aren't exposed as methods. Short and unlikely to change, but it's duplication worth knowing about.
-- **`index.PAGES_PATH` is repointed at import.** It resolves relative to the caller's working directory, which is fine inside `paderbot-api` but not here, so it's derived from the installed module's own path instead of hardcoded.
 
 ---
 
